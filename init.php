@@ -7,6 +7,31 @@ function db() {
     return $pdo;
 }
 
+function csrf_token(): string {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function csrf_check(): void {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+            http_response_code(403);
+            die('Requête invalide (CSRF).');
+        }
+    }
+}
+
+function check_rate_limit(string $key, int $max = 10, int $window = 300): bool {
+    $k = 'rl_' . $key;
+    if (!isset($_SESSION[$k])) $_SESSION[$k] = ['count' => 0, 'time' => time()];
+    if (time() - $_SESSION[$k]['time'] > $window) $_SESSION[$k] = ['count' => 0, 'time' => time()];
+    $_SESSION[$k]['count']++;
+    return $_SESSION[$k]['count'] <= $max;
+}
+
 function init() {
     $pdo = db();
     $pdo->exec("
@@ -58,19 +83,21 @@ function init() {
         );
     ");
 
+    // ['alice', md5('alice123'), ...], ['bob', md5('bob123'), ...], ['admin', md5('admin'), ...]
+    //
     $users = [
-        ['alice', md5('alice123'), 'alice@vulnshop.fr', 'user', 'Acheteuse passionnée.', 500.0],
-        ['bob', md5('bob123'), 'bob@vulnshop.fr', 'user', 'Vendeur de gadgets.', 200.0],
-        ['admin', md5('admin'), 'admin@vulnshop.fr', 'admin', 'Administrateur.', 9999.0],
+        ['alice', password_hash('alice123', PASSWORD_BCRYPT), 'alice@vulnshop.fr', 'user',  'Acheteuse passionnée.', 500.0],
+        ['bob',   password_hash('bob123',   PASSWORD_BCRYPT), 'bob@vulnshop.fr',   'user',  'Vendeur de gadgets.',  200.0],
+        ['admin', password_hash('admin',    PASSWORD_BCRYPT), 'admin@vulnshop.fr', 'admin', 'Administrateur.',      9999.0],
     ];
     $s = $pdo->prepare("INSERT OR IGNORE INTO users (username,password,email,role,bio,balance) VALUES (?,?,?,?,?,?)");
     foreach ($users as $u) $s->execute($u);
 
     $products = [
-        [1, 'Clé USB 64Go', 'Clé USB rapide et fiable.', 12.99, 50, 2],
-        [2, 'Souris sans fil', 'Ergonomique et précise.', 24.99, 30, 2],
-        [3, 'Casque audio', 'Son haute fidélité.', 49.99, 15, 1],
-        [4, 'Webcam HD', 'Idéale pour les visioconférences.', 39.99, 20, 1],
+        [1, 'Clé USB 64Go',    'Clé USB rapide et fiable.',          12.99, 50, 2],
+        [2, 'Souris sans fil', 'Ergonomique et précise.',              24.99, 30, 2],
+        [3, 'Casque audio',    'Son haute fidélité.',                  49.99, 15, 1],
+        [4, 'Webcam HD',       'Idéale pour les visioconférences.',    39.99, 20, 1],
     ];
     $s = $pdo->prepare("INSERT OR IGNORE INTO products (id,name,description,price,stock,seller_id) VALUES (?,?,?,?,?,?)");
     foreach ($products as $p) $s->execute($p);

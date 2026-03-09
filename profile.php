@@ -3,10 +3,15 @@ $title = 'Profil';
 require_once 'header.php';
 $me = require_login();
 
-$uid = $_GET['uid'] ?? $me['id'];
+csrf_check();
+
+$uid = intval($_GET['uid'] ?? $me['id']);
 $db  = db();
 
-$user = $db->query("SELECT * FROM users WHERE id = $uid")->fetch(PDO::FETCH_ASSOC);
+// $user = $db->query("SELECT * FROM users WHERE id = $uid")->fetch(PDO::FETCH_ASSOC);
+$s = $db->prepare("SELECT * FROM users WHERE id = ?");
+$s->execute([$uid]);
+$user = $s->fetch(PDO::FETCH_ASSOC);
 if (!$user) { echo '<div class="err">Utilisateur introuvable.</div>'; require_once 'footer.php'; exit; }
 
 $ok = $error = '';
@@ -18,33 +23,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $is_own) {
     if ($action === 'update') {
         $bio   = $_POST['bio']   ?? '';
         $email = $_POST['email'] ?? '';
-        $db->query("UPDATE users SET bio='$bio', email='$email' WHERE id=" . $me['id']);
-        $ok   = "Profil mis à jour.";
-        $user = $db->query("SELECT * FROM users WHERE id = $uid")->fetch(PDO::FETCH_ASSOC);
+        // $db->query("UPDATE users SET bio='$bio', email='$email' WHERE id=" . $me['id']);
+        $db->prepare("UPDATE users SET bio=?, email=? WHERE id=?")->execute([$bio, $email, $me['id']]);
+        $ok = "Profil mis à jour.";
+        $s = $db->prepare("SELECT * FROM users WHERE id = ?");
+        $s->execute([$uid]);
+        $user = $s->fetch(PDO::FETCH_ASSOC);
     }
 
     if ($action === 'password') {
         $np = $_POST['new_password'] ?? '';
-        if (strlen($np) >= 4) {
-            $db->query("UPDATE users SET password='" . md5($np) . "' WHERE id=" . $me['id']);
+        // if (strlen($np) >= 4) {
+        //     $db->query("UPDATE users SET password='" . md5($np) . "' WHERE id=" . $me['id']);
+        // }
+        if (strlen($np) >= 8) {
+            $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([password_hash($np, PASSWORD_BCRYPT), $me['id']]);
             $ok = "Mot de passe modifié.";
         } else {
-            $error = "Mot de passe trop court.";
+            $error = "Mot de passe trop court (8 caractères minimum).";
         }
     }
 
     if ($action === 'delete') {
-        $db->query("DELETE FROM users WHERE id=" . $me['id']);
+        $db->prepare("DELETE FROM users WHERE id=?")->execute([$me['id']]);
         session_destroy();
         header('Location: index.php'); exit;
     }
 }
 
-$orders = $db->query(
+// $orders = $db->query(
+//     "SELECT o.*, p.name as product_name FROM orders o
+//      JOIN products p ON o.product_id = p.id
+//      WHERE o.user_id = $uid ORDER BY o.created_at DESC"
+// )->fetchAll(PDO::FETCH_ASSOC);
+//
+$s = $db->prepare(
     "SELECT o.*, p.name as product_name FROM orders o
      JOIN products p ON o.product_id = p.id
-     WHERE o.user_id = $uid ORDER BY o.created_at DESC"
-)->fetchAll(PDO::FETCH_ASSOC);
+     WHERE o.user_id = ? ORDER BY o.created_at DESC"
+);
+$s->execute([$uid]);
+$orders = $s->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <div class="card">
@@ -57,7 +76,10 @@ $orders = $db->query(
   <p><strong>Solde :</strong> <?= number_format($user['balance'],2) ?> €</p>
   <p><strong>Bio :</strong></p>
   <div style="background:#f8f8f8;padding:10px;border-radius:5px;margin-top:6px">
+    <!--
     <?= $user['bio'] ?: '<em style="color:#aaa">Aucune bio.</em>' ?>
+    -->
+    <?= $user['bio'] ? htmlspecialchars($user['bio'], ENT_QUOTES, 'UTF-8') : '<em style="color:#aaa">Aucune bio.</em>' ?>
   </div>
 </div>
 
@@ -65,6 +87,7 @@ $orders = $db->query(
 <div class="card">
   <h2>✏️ Modifier mon profil</h2>
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <input type="hidden" name="action" value="update">
     <label style="font-size:13px">Email</label>
     <input type="email" name="email" value="<?= htmlspecialchars($user['email']) ?>">
@@ -75,13 +98,15 @@ $orders = $db->query(
   <hr>
   <h2>🔑 Changer le mot de passe</h2>
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <input type="hidden" name="action" value="password">
-    <input type="password" name="new_password" placeholder="Nouveau mot de passe">
+    <input type="password" name="new_password" placeholder="Nouveau mot de passe (8 car. min.)">
     <button class="btn" type="submit">Modifier</button>
   </form>
   <hr>
   <h2 style="color:#c0392b">⚠️ Zone dangereuse</h2>
   <form method="POST" onsubmit="return confirm('Supprimer votre compte ?')">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <input type="hidden" name="action" value="delete">
     <button class="btn btn-red" type="submit">🗑 Supprimer mon compte</button>
   </form>

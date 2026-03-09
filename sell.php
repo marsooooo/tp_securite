@@ -3,6 +3,8 @@ $title = 'Vendre';
 require_once 'header.php';
 $me = require_login();
 
+csrf_check();
+
 $ok = $error = '';
 $db = db();
 
@@ -17,34 +19,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($name && $price > 0) {
             if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
-                $filename = $_FILES['image']['name'];
-                move_uploaded_file($_FILES['image']['tmp_name'], __DIR__ . '/uploads/' . $filename);
+                // $filename = $_FILES['image']['name'];
+                // move_uploaded_file($_FILES['image']['tmp_name'], __DIR__ . '/uploads/' . $filename);
+                //
+                $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+                $allowed_exts  = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                $ext  = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
+                $mime = mime_content_type($_FILES['image']['tmp_name']);
+                if (!in_array($mime, $allowed_types, true) || !in_array($ext, $allowed_exts, true)) {
+                    $error = "Type de fichier non autorisé (images uniquement).";
+                } else {
+                    if (!is_dir(__DIR__ . '/uploads')) mkdir(__DIR__ . '/uploads', 0755);
+                    $filename = bin2hex(random_bytes(8)) . '.' . $ext;
+                    move_uploaded_file($_FILES['image']['tmp_name'], __DIR__ . '/uploads/' . $filename);
+                }
             }
-            $db->prepare("INSERT INTO products (name,description,price,stock,seller_id) VALUES (?,?,?,?,?)")
-               ->execute([$name, $desc, $price, $stock, $me['id']]);
-            $ok = "Produit ajouté !";
+            if (!$error) {
+                $db->prepare("INSERT INTO products (name,description,price,stock,seller_id) VALUES (?,?,?,?,?)")
+                   ->execute([$name, $desc, $price, $stock, $me['id']]);
+                $ok = "Produit ajouté !";
+            }
         } else {
             $error = "Nom et prix obligatoires.";
         }
     }
 
     if ($action === 'delete') {
-        $pid = $_POST['pid'] ?? 0;
-        $db->query("DELETE FROM products WHERE id=$pid");
+        $pid = intval($_POST['pid'] ?? 0);
+        // $db->query("DELETE FROM products WHERE id=$pid");
+        //
+        $db->prepare("DELETE FROM products WHERE id=? AND seller_id=?")->execute([$pid, $me['id']]);
         $ok = "Produit supprimé.";
     }
 
     if ($action === 'update_price') {
-        $pid      = $_POST['pid'] ?? 0;
-        $newprice = $_POST['new_price'] ?? 0;
-        $db->query("UPDATE products SET price=$newprice WHERE id=$pid");
+        $pid      = intval($_POST['pid'] ?? 0);
+        $newprice = floatval($_POST['new_price'] ?? 0);
+        // $db->query("UPDATE products SET price=$newprice WHERE id=$pid");
+        //
+        $db->prepare("UPDATE products SET price=? WHERE id=? AND seller_id=?")->execute([$newprice, $pid, $me['id']]);
         $ok = "Prix mis à jour.";
     }
 }
 
-$my_products = $db->query(
-    "SELECT * FROM products WHERE seller_id = " . $me['id']
-)->fetchAll(PDO::FETCH_ASSOC);
+// $my_products = $db->query("SELECT * FROM products WHERE seller_id = " . $me['id'])->fetchAll(...);
+$s = $db->prepare("SELECT * FROM products WHERE seller_id = ?");
+$s->execute([$me['id']]);
+$my_products = $s->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <div class="card">
@@ -54,6 +75,7 @@ $my_products = $db->query(
 
   <h2>Ajouter un produit</h2>
   <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <input type="hidden" name="action" value="add">
     <label style="font-size:13px">Nom du produit</label>
     <input type="text" name="name" placeholder="Ex: Clé USB 128Go">
@@ -81,11 +103,13 @@ $my_products = $db->query(
       <td><?= $p['stock'] ?></td>
       <td style="display:flex;gap:6px">
         <form method="POST" style="margin:0;display:flex;gap:4px">
+          <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
           <input type="hidden" name="pid" value="<?= $p['id'] ?>">
           <input type="number" name="new_price" value="<?= $p['price'] ?>" step="0.01" style="width:80px;padding:3px;font-size:12px;margin:0">
           <button class="btn btn-sm btn-blue" name="action" value="update_price" type="submit">Modifier</button>
         </form>
         <form method="POST" style="margin:0">
+          <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
           <input type="hidden" name="pid" value="<?= $p['id'] ?>">
           <button class="btn btn-sm btn-red" name="action" value="delete" type="submit">🗑</button>
         </form>

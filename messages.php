@@ -4,13 +4,18 @@ require_once 'header.php';
 $me = require_login();
 $db = db();
 
+csrf_check();
+
 $ok = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $to_name = trim($_POST['to'] ?? '');
     $content = $_POST['content'] ?? '';
 
-    $to = $db->query("SELECT * FROM users WHERE username='$to_name'")->fetch(PDO::FETCH_ASSOC);
+    // $to = $db->query("SELECT * FROM users WHERE username='$to_name'")->fetch(PDO::FETCH_ASSOC);
+    $s = $db->prepare("SELECT * FROM users WHERE username=?");
+    $s->execute([$to_name]);
+    $to = $s->fetch(PDO::FETCH_ASSOC);
 
     if (!$to) {
         $error = "Utilisateur introuvable.";
@@ -21,19 +26,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$inbox = $db->query(
+// $inbox = $db->query("... WHERE m.to_id = " . $me['id'] . " ...")->fetchAll(...);
+$s = $db->prepare(
     "SELECT m.*, u.username as sender FROM messages m
      JOIN users u ON m.from_id = u.id
-     WHERE m.to_id = " . $me['id'] . "
-     ORDER BY m.created_at DESC"
-)->fetchAll(PDO::FETCH_ASSOC);
+     WHERE m.to_id = ? ORDER BY m.created_at DESC"
+);
+$s->execute([$me['id']]);
+$inbox = $s->fetchAll(PDO::FETCH_ASSOC);
 
-$sent = $db->query(
+$s = $db->prepare(
     "SELECT m.*, u.username as recipient FROM messages m
      JOIN users u ON m.to_id = u.id
-     WHERE m.from_id = " . $me['id'] . "
-     ORDER BY m.created_at DESC"
-)->fetchAll(PDO::FETCH_ASSOC);
+     WHERE m.from_id = ? ORDER BY m.created_at DESC"
+);
+$s->execute([$me['id']]);
+$sent = $s->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <div class="card">
   <h1>✉️ Messagerie</h1>
@@ -42,6 +50,7 @@ $sent = $db->query(
 
   <h2>Nouveau message</h2>
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <label style="font-size:13px">Destinataire (username)</label>
     <input type="text" name="to" placeholder="ex: alice">
     <label style="font-size:13px">Message</label>
@@ -55,7 +64,10 @@ $sent = $db->query(
   <?php foreach ($inbox as $m): ?>
   <div style="border-bottom:1px solid #eee;padding:10px 0">
     <p class="meta"><strong><?= htmlspecialchars($m['sender']) ?></strong> — <?= $m['created_at'] ?></p>
+    <!--
     <div style="margin-top:6px"><?= $m['content'] ?></div>
+    -->
+    <div style="margin-top:6px"><?= htmlspecialchars($m['content'], ENT_QUOTES, 'UTF-8') ?></div>
   </div>
   <?php endforeach; ?>
   <?php if (!$inbox): ?><p style="color:#888">Aucun message reçu.</p><?php endif; ?>
@@ -66,7 +78,10 @@ $sent = $db->query(
   <?php foreach ($sent as $m): ?>
   <div style="border-bottom:1px solid #eee;padding:10px 0">
     <p class="meta">À <strong><?= htmlspecialchars($m['recipient']) ?></strong> — <?= $m['created_at'] ?></p>
+    <!--
     <div style="margin-top:6px"><?= $m['content'] ?></div>
+    -->
+    <div style="margin-top:6px"><?= htmlspecialchars($m['content'], ENT_QUOTES, 'UTF-8') ?></div>
   </div>
   <?php endforeach; ?>
   <?php if (!$sent): ?><p style="color:#888">Aucun message envoyé.</p><?php endif; ?>

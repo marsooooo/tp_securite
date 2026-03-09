@@ -2,6 +2,8 @@
 $title = 'Inscription';
 require_once 'header.php';
 
+csrf_check();
+
 $error = $ok = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -10,8 +12,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $e = trim($_POST['email'] ?? '');
     if ($u && $p && $e) {
         try {
+            // db()->prepare("INSERT INTO users (username,password,email) VALUES (?,?,?)")
+            //    ->execute([$u, md5($p), $e]);
+            //
             db()->prepare("INSERT INTO users (username,password,email) VALUES (?,?,?)")
-               ->execute([$u, md5($p), $e]);
+               ->execute([$u, password_hash($p, PASSWORD_BCRYPT), $e]);
             $ok = "Compte créé ! <a href='login.php'>Se connecter</a>";
         } catch (Exception $ex) {
             $error = "Ce nom d'utilisateur est déjà pris.";
@@ -26,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <?php if ($error): ?><div class="err"><?= $error ?></div><?php endif; ?>
   <?php if ($ok):    ?><div class="ok"><?= $ok ?></div><?php endif; ?>
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
     <label style="font-size:13px">Nom d'utilisateur</label>
     <input type="text" name="username">
     <label style="font-size:13px">Email</label>
